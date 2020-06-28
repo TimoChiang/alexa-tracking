@@ -38,6 +38,10 @@ func DispatchIntents(request alexa.Request) alexa.Response {
 	switch request.Body.Intent.Name {
 	case "TrackingRequestIntent":
 		response = handleTracking(request)
+	case "SetAliasIntent":
+		response = handleSetAliasForTracking(request)
+	case "getAllTrackingIntent":
+		response = handleAllTracking(request)
 	case alexa.HelpIntent:
 		response = handleTrackingHelp()
 	default :
@@ -71,16 +75,57 @@ func handleTracking(request alexa.Request) alexa.Response {
 				//removeTrackingNumber()
 			}else {
 				putTrackingNumber(request.Session.User.UserID, string(t.Company), t.Number, "0")
-				return NewResponse("tracking", "ただいまの状態は" + t.Status + "です。", true)
+				sessionAttribute := make(map[string]interface{})
+				sessionAttribute["company"] = t.Company
+				sessionAttribute["number"] = t.Number
+				return NewResponseWithSession("tracking", "ただいまの状態は" + t.Status + "です。よろしければこの追跡内容を教えていただけませんか？", sessionAttribute)
+				//return NewResponse("tracking", "ただいまの状態は" + t.Status + "です。", true)
 			}
 
 		} else {
-			return NewResponse("tracking", "すみません、この伝票番号誤ります。番号は、"+ convertNumberToKanji(number) + "間違いないでしょうか？", false)
+			if t.Status == "伝票番号未登録" {
+				putTrackingNumber(request.Session.User.UserID, string(t.Company), t.Number, "0")
+				sessionAttribute := make(map[string]interface{})
+				sessionAttribute["company"] = t.Company
+				sessionAttribute["number"] = t.Number
+				return NewResponseWithSession("tracking", "伝票番号は未登録です。反映まで少々待ちください。よろしければこの追跡内容を教えていただけませんか？", sessionAttribute)
+			}else if t.Status == "伝票番号誤り" {
+				return NewResponse("tracking", "すみません、この伝票番号誤ります。番号は、"+ convertNumberToKanji(number) + "間違いないでしょうか？", false)
+			}
 		}
 	}
 
 	return NewResponse("tracking", "すみません、よくわかりません、もう一度お願いします。", false)
 }
+
+func handleSetAliasForTracking(request alexa.Request) alexa.Response {
+	sessionAttribute := request.Session.Attributes
+	if len(sessionAttribute) > 0 {
+		slots := request.Body.Intent.Slots
+		alias := slots["tackingAlias"].Value
+		putTrackingNumberWithAlias(request.Session.User.UserID, fmt.Sprintf("%v", sessionAttribute["company"]), fmt.Sprintf("%v", sessionAttribute["number"]), alias)
+		return NewResponse("tracking", "設定しました！", true)
+	}else{
+		return NewResponse("tracking", "追跡番号まだわからないです。", false)
+	}
+}
+
+func handleAllTracking(request alexa.Request) alexa.Response {
+	trackings := getUserAllTrackingNumber(request.Session.User.UserID)
+	message :=  fmt.Sprintf("ただいまの荷物は%d個です。\n", len(trackings))
+	for _, tracking := range trackings {
+		trackingCompositeNumber := strings.Split(tracking.TrackingCompositeNumber, "_")
+		if tracking.Alias != "" {
+			message += fmt.Sprintf("%sから配送する%sです。\n", trackingCompositeNumber[0], tracking.Alias)
+		}else{
+			message += fmt.Sprintf("%sから配送する%sです。\n", trackingCompositeNumber[0], convertNumberToKanji(trackingCompositeNumber[1]))
+		}
+
+	}
+	return NewResponse("All tracking ", message, true)
+}
+
+
 
 func handleTrackingHelp() alexa.Response {
 	return NewResponse("Help for Tracking", "追跡サービスです", false)
@@ -105,6 +150,26 @@ func NewResponse(title string, text string, isSessionEnd bool) alexa.Response {
 			},
 			ShouldEndSession: isSessionEnd,
 		},
+	}
+	return r
+}
+
+func NewResponseWithSession(title string, text string , sessionAttribute map[string]interface{}) alexa.Response {
+	r := alexa.Response{
+		Version: "1.0",
+		Body: alexa.ResBody{
+			OutputSpeech: &alexa.Payload{
+				Type: "PlainText",
+				Text: text,
+			},
+			Card: &alexa.Payload{
+				Type:    "Simple",
+				Title:   title,
+				Content: text,
+			},
+			ShouldEndSession: false,
+		},
+		SessionAttributes: sessionAttribute,
 	}
 	return r
 }

@@ -17,6 +17,7 @@ const (
 type Item struct {
 	UserId         string
 	TrackingCompositeNumber string //company + tracking number
+	Alias string
 }
 
 func dbInitial() {
@@ -55,7 +56,7 @@ func getItem(partitionKeyValue , sortKeyValue string) *Item {
 	return item
 }
 
-func putItem(partitionKeyValue , sortKeyValue, flg string) (bool, error) {
+func putItem(partitionKeyValue , sortKeyValue, flg, alias string) (bool, error) {
 	dbInitial()
 	_, err := svc.PutItem(&dynamodb.PutItemInput{
 		TableName: aws.String(tableName),
@@ -71,6 +72,9 @@ func putItem(partitionKeyValue , sortKeyValue, flg string) (bool, error) {
 			},
 			"ShippingFinishFlg": {
 				S: aws.String(flg),
+			},
+			"Alias": {
+				S: aws.String(alias),
 			},
 		},
 	})
@@ -156,6 +160,41 @@ func queryItemsWithRangeKey(partitionKeyValue , sortKeyValue string) []*Item {
 	return items
 }
 
+func queryItemsWithPrimaryKey(partitionKeyValue string) []*Item {
+	dbInitial()
+	items := make([]*Item, 0)
+	getQuerys, err := svc.Query(&dynamodb.QueryInput{
+		TableName: aws.String(tableName),
+		KeyConditionExpression: aws.String("#ID = :partitionkeyval"),
+		FilterExpression : aws.String("#FALG = :flagValue "),
+		ExpressionAttributeNames: map[string]*string{
+			"#ID": aws.String("UserId"),
+			"#FALG": aws.String("ShippingFinishFlg"),
+		},
+		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
+			":partitionkeyval": {
+				S: aws.String(partitionKeyValue),
+			},
+			":flagValue": {
+				S: aws.String("0"),
+			},
+		},
+	})
+
+	if err != nil {
+		fmt.Println(err)
+		return items
+	}
+
+	dynamodbattribute.UnmarshalListOfMaps(getQuerys.Items, &items)
+	if err != nil {
+		errMsg := fmt.Sprintf("Failed to unmarshal Record, %v", err)
+		fmt.Println(errMsg)
+		panic(errMsg)
+	}
+	return items
+}
+
 func deleteItem(partitionKeyValue , sortKeyValue string) {
 	dbInitial()
 	_, err := svc.DeleteItem(&dynamodb.DeleteItemInput{
@@ -182,7 +221,13 @@ func getTrackingNumber(userId, company, num string) *Item {
 }
 
 func putTrackingNumber(userId, company, num, flg string) {
-	if ok, err := putItem(userId, getTrackingCompositeNumber(company, num), flg); !ok {
+	if ok, err := putItem(userId, getTrackingCompositeNumber(company, num), flg, ""); !ok {
+		panic(err)
+	}
+}
+
+func putTrackingNumberWithAlias(userId, company, num, alias string) {
+	if ok, err := putItem(userId, getTrackingCompositeNumber(company, num), "0", alias); !ok {
 		panic(err)
 	}
 }
@@ -202,4 +247,8 @@ func removeTrackingNumber(userId, company, num string) {
 
 func getTrackingCompositeNumber(company, num string) string {
 	return company + "_" + num
+}
+
+func getUserAllTrackingNumber(userId string) []*Item {
+	return queryItemsWithPrimaryKey(userId)
 }
