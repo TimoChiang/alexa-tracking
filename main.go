@@ -113,19 +113,26 @@ func handleSetAliasForTracking(request alexa.Request) alexa.Response {
 func handleAllTracking(request alexa.Request) alexa.Response {
 	trackings := getUserAllTrackingNumber(request.Session.User.UserID)
 	message :=  fmt.Sprintf("ただいまの荷物は%d個です。\n", len(trackings))
-	for _, tracking := range trackings {
-		trackingCompositeNumber := strings.Split(tracking.TrackingCompositeNumber, "_")
-		if tracking.Alias != "" {
-			message += fmt.Sprintf("%sから配送する%sです。\n", trackingCompositeNumber[0], tracking.Alias)
-		}else{
-			message += fmt.Sprintf("%sから配送する%sです。\n", trackingCompositeNumber[0], convertNumberToKanji(trackingCompositeNumber[1]))
-		}
+	for k, item := range trackings {
+		trackingCompositeNumber := strings.Split(item.TrackingCompositeNumber, "_")
+		t := tracking.New()
+		t.SetCompany(trackingCompositeNumber[0])
+		t.SetNumber(trackingCompositeNumber[1])
+		t.Request()
 
+		name := ""
+		if item.Alias != "" {
+			name = item.Alias
+		}else{
+			name = convertNumberToKanji(trackingCompositeNumber[1])
+		}
+		message += fmt.Sprintf("%d、%sの、%s、の荷物状況は、%s。\n", k + 1, trackingCompositeNumber[0], name, t.Status)
+		if t.Status == "配達完了" {
+			putTrackingNumber(request.Session.User.UserID, string(t.Company), t.Number, "1")
+		}
 	}
 	return NewResponse("All tracking ", message, true)
 }
-
-
 
 func handleTrackingHelp() alexa.Response {
 	return NewResponse("Help for Tracking", "追跡サービスです", false)
